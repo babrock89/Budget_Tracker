@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#4a90d9">
+    <title>Budget Tracker</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header>
+            <h1>Daily Budget</h1>
+            <button id="settings-btn" aria-label="Settings">&#9881;</button>
+        </header>
+
+        <!-- Daily Goal Banner -->
+        <section id="goal-banner">
+            <div id="goal-display">
+                <span id="spent-amount">$0.00</span>
+                <span id="goal-separator"> / </span>
+                <span id="goal-amount">$0.00</span>
+            </div>
+            <div id="progress-bar-container">
+                <div id="progress-bar"></div>
+            </div>
+            <div id="remaining-label">$0.00 remaining</div>
+        </section>
+
+        <!-- Date Navigation -->
+        <section id="date-nav">
+            <button id="prev-day" aria-label="Previous day">&#9664;</button>
+            <span id="current-date"></span>
+            <button id="next-day" aria-label="Next day">&#9654;</button>
+        </section>
+
+        <!-- Quick Add Expense -->
+        <section id="add-expense">
+            <form id="expense-form">
+                <div class="form-row">
+                    <input type="number" id="expense-amount" placeholder="Amount" step="0.01" min="0" required inputmode="decimal">
+                    <select id="expense-category">
+                        <option value="groceries">Groceries</option>
+                        <option value="dining">Dining Out</option>
+                        <option value="gas">Gas</option>
+                        <option value="shopping">Shopping</option>
+                        <option value="entertainment">Entertainment</option>
+                        <option value="health">Health</option>
+                        <option value="bills">Bills</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <input type="text" id="expense-note" placeholder="Note (optional)">
+                    <button type="submit" id="add-btn">Add</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Today's Expenses List -->
+        <section id="expenses-list">
+            <h2>Expenses</h2>
+            <ul id="expense-items"></ul>
+            <p id="no-expenses">No expenses yet today</p>
+        </section>
+
+        <!-- Tab Navigation -->
+        <nav id="tab-nav">
+            <button class="tab active" data-tab="daily">Today</button>
+            <button class="tab" data-tab="weekly">This Week</button>
+            <button class="tab" data-tab="history">History</button>
+        </nav>
+
+        <!-- Weekly Summary View (hidden by default) -->
+        <section id="weekly-view" class="tab-content" style="display:none;">
+            <div id="week-nav">
+                <button id="prev-week" aria-label="Previous week">&#9664;</button>
+                <span id="week-range"></span>
+                <button id="next-week" aria-label="Next week">&#9654;</button>
+            </div>
+            <div id="weekly-summary">
+                <div id="week-total-card">
+                    <span class="card-label">Week Total</span>
+                    <span id="week-total" class="card-value">$0.00</span>
+                </div>
+                <div id="week-avg-card">
+                    <span class="card-label">Daily Average</span>
+                    <span id="week-avg" class="card-value">$0.00</span>
+                </div>
+                <div id="week-goal-card">
+                    <span class="card-label">Weekly Goal</span>
+                    <span id="week-goal" class="card-value">$0.00</span>
+                </div>
+            </div>
+            <h3>By Category</h3>
+            <div id="category-breakdown"></div>
+            <h3>Daily Breakdown</h3>
+            <div id="daily-bars"></div>
+        </section>
+
+        <!-- 5-Week History View (hidden by default) -->
+        <section id="history-view" class="tab-content" style="display:none;">
+            <h2>5-Week Performance</h2>
+            <canvas id="history-chart" width="400" height="250"></canvas>
+            <div id="history-details"></div>
+        </section>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal" style="display:none;">
+            <div class="modal-content">
+                <h2>Settings</h2>
+                <label for="daily-goal-input">Daily Spending Goal ($)</label>
+                <input type="number" id="daily-goal-input" step="0.01" min="0" inputmode="decimal">
+                <label for="custom-categories">Custom Categories (one per line)</label>
+                <textarea id="custom-categories" rows="4" placeholder="e.g. Coffee&#10;Pet supplies&#10;Subscriptions"></textarea>
+                <div class="modal-actions">
+                    <button id="save-settings">Save</button>
+                    <button id="cancel-settings">Cancel</button>
+                </div>
+                <hr>
+                <details>
+                    <summary>Data Management</summary>
+                    <div class="data-actions">
+                        <button id="export-data">Export Data</button>
+                        <button id="import-data">Import Data</button>
+                        <input type="file" id="import-file" accept=".json" style="display:none;">
+                        <button id="clear-data" class="danger">Clear All Data</button>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
