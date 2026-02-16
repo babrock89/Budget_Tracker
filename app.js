@@ -1,31 +1,97 @@
 // ============================================================
 // Budget Tracker App
-// All data persisted in localStorage
+// Firebase Auth (Google) + Firestore for cloud persistence
+// localStorage as fast cache / offline fallback
 // ============================================================
 
 (function () {
     'use strict';
 
+    // --- Firebase refs ---
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+    // Enable Firestore offline persistence
+    db.enablePersistence({ synchronizeTabs: true }).catch(() => {
+        // Multi-tab or browser doesn't support — still works fine
+    });
+
     // --- Data helpers ---
     const STORAGE_KEY = 'budgetTracker';
 
-    function loadData() {
+    function defaultData() {
+        return {
+            dailyGoal: 50,
+            customCategories: [],
+            expenses: {}
+        };
+    }
+
+    function loadFromLocalStorage() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             return JSON.parse(raw);
         }
-        return {
-            dailyGoal: 50,
-            customCategories: [],
-            expenses: {} // keyed by date string "YYYY-MM-DD" -> array of expenses
-        };
+        return defaultData();
     }
 
-    function saveData(data) {
+    function saveToLocalStorage(data) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
 
-    let data = loadData();
+    let data = defaultData();
+    let currentUser = null;
+    let saveTimeout = null;
+
+    // Save to Firestore (debounced) + localStorage (immediate)
+    function saveData(d) {
+        data = d || data;
+        saveToLocalStorage(data);
+
+        if (!currentUser) return;
+
+        // Debounce Firestore writes to 500ms
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            db.collection('users').doc(currentUser.uid).set({
+                dailyGoal: data.dailyGoal,
+                customCategories: data.customCategories,
+                expenses: data.expenses
+            }, { merge: true }).catch(() => {
+                // Offline — Firestore will sync when back online
+            });
+        }, 500);
+    }
+
+    // Load from Firestore (with localStorage fallback)
+    async function loadFromFirestore(uid) {
+        try {
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                const d = doc.data();
+                data = {
+                    dailyGoal: d.dailyGoal ?? 50,
+                    customCategories: d.customCategories || [],
+                    expenses: d.expenses || {}
+                };
+            } else {
+                // First time user — check if they have localStorage data to migrate
+                const local = loadFromLocalStorage();
+                if (local.expenses && Object.keys(local.expenses).length > 0) {
+                    data = local;
+                    // Save their existing local data to Firestore
+                    saveData(data);
+                } else {
+                    data = defaultData();
+                }
+            }
+        } catch {
+            // Offline — fall back to localStorage
+            data = loadFromLocalStorage();
+        }
+        saveToLocalStorage(data);
+    }
 
     // --- Date helpers ---
     function formatDate(date) {
@@ -441,8 +507,22 @@
         if (tab === 'history') renderHistoryView();
     }
 
+    // --- Auth: show/hide screens ---
+    function showApp(user) {
+        $('#login-screen').classList.add('hidden');
+        $('#app').style.display = '';
+        // Show first name only
+        const firstName = user.displayName ? user.displayName.split(' ')[0] : 'User';
+        $('#user-name').textContent = firstName;
+    }
+
+    function showLogin() {
+        $('#login-screen').classList.remove('hidden');
+        $('#app').style.display = 'none';
+    }
+
     // --- Event handlers ---
-    function init() {
+    function initUI() {
         updateCategoryDropdown();
         renderDailyView();
 
@@ -578,8 +658,8 @@
         // Clear data
         $('#clear-data').addEventListener('click', () => {
             if (confirm('Are you sure you want to delete ALL data? This cannot be undone.')) {
-                localStorage.removeItem(STORAGE_KEY);
-                data = loadData();
+                data = defaultData();
+                saveData(data);
                 updateCategoryDropdown();
                 renderDailyView();
                 alert('All data cleared.');
@@ -587,6 +667,50 @@
             }
         });
     }
+
+    // --- Auth event handlers (set up once) ---
+    function initAuth() {
+        $('#google-sign-in').addEventListener('click', () => {
+            auth.signInWithPopup(googleProvider).catch((err) => {
+                // Handle popup blocked on mobile — fall back to redirect
+                if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
+                    auth.signInWithRedirect(googleProvider);
+                }
+            });
+        });
+
+        $('#sign-out-btn').addEventListener('click', () => {
+            auth.signOut();
+        });
+    }
+
+    // --- Boot ---
+    let uiInitialized = false;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initAuth();
+
+        // Firebase auth state listener — fires on load and on sign-in/out
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                await loadFromFirestore(user.uid);
+                showApp(user);
+
+                if (!uiInitialized) {
+                    initUI();
+                    uiInitialized = true;
+                } else {
+                    updateCategoryDropdown();
+                    renderDailyView();
+                }
+            } else {
+                currentUser = null;
+                data = defaultData();
+                showLogin();
+            }
+        });
+    });
 
     // --- Service Worker Registration ---
     if ('serviceWorker' in navigator) {
@@ -596,7 +720,4 @@
             });
         });
     }
-
-    // --- Boot ---
-    document.addEventListener('DOMContentLoaded', init);
 })();
