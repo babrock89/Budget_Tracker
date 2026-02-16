@@ -1,6 +1,7 @@
 // ============================================================
 // Budget Tracker App
 // Firebase Auth (Google) + Firestore for cloud persistence
+// Supports personal + shared budgets with invite codes
 // localStorage as fast cache / offline fallback
 // ============================================================
 
@@ -36,36 +37,53 @@
         return defaultData();
     }
 
-    function saveToLocalStorage(data) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    function saveToLocalStorage(d) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
     }
 
     let data = defaultData();
     let currentUser = null;
     let saveTimeout = null;
 
-    // Save to Firestore (debounced) + localStorage (immediate)
+    // --- Shared budget state ---
+    let activeBudgetId = null; // null = personal, string = shared budget doc ID
+    let sharedBudgets = [];    // array of { id, name, inviteCode, memberCount }
+
+    // --- Save data to the active budget location ---
     function saveData(d) {
         data = d || data;
-        saveToLocalStorage(data);
+
+        // Always cache to localStorage for the active budget
+        if (!activeBudgetId) {
+            saveToLocalStorage(data);
+        }
 
         if (!currentUser) return;
 
-        // Debounce Firestore writes to 500ms
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
-            db.collection('users').doc(currentUser.uid).set({
+            const payload = {
                 dailyGoal: data.dailyGoal,
                 customCategories: data.customCategories,
                 expenses: data.expenses
-            }, { merge: true }).catch(() => {
-                // Offline — Firestore will sync when back online
-            });
+            };
+
+            if (activeBudgetId) {
+                // Shared budget
+                db.collection('budgets').doc(activeBudgetId)
+                    .update(payload)
+                    .catch(() => {});
+            } else {
+                // Personal budget
+                db.collection('users').doc(currentUser.uid)
+                    .set(payload, { merge: true })
+                    .catch(() => {});
+            }
         }, 500);
     }
 
-    // Load from Firestore (with localStorage fallback)
-    async function loadFromFirestore(uid) {
+    // --- Load personal budget from Firestore ---
+    async function loadPersonalBudget(uid) {
         try {
             const doc = await db.collection('users').doc(uid).get();
             if (doc.exists) {
@@ -76,21 +94,225 @@
                     expenses: d.expenses || {}
                 };
             } else {
-                // First time user — check if they have localStorage data to migrate
+                // First time user — migrate localStorage if present
                 const local = loadFromLocalStorage();
                 if (local.expenses && Object.keys(local.expenses).length > 0) {
                     data = local;
-                    // Save their existing local data to Firestore
                     saveData(data);
                 } else {
                     data = defaultData();
                 }
             }
         } catch {
-            // Offline — fall back to localStorage
             data = loadFromLocalStorage();
         }
         saveToLocalStorage(data);
+    }
+
+    // --- Load shared budget from Firestore ---
+    async function loadSharedBudget(budgetId) {
+        try {
+            const doc = await db.collection('budgets').doc(budgetId).get();
+            if (doc.exists) {
+                const d = doc.data();
+                data = {
+                    dailyGoal: d.dailyGoal ?? 50,
+                    customCategories: d.customCategories || [],
+                    expenses: d.expenses || {}
+                };
+            } else {
+                data = defaultData();
+            }
+        } catch {
+            data = defaultData();
+        }
+    }
+
+    // --- Switch between budgets ---
+    async function switchBudget(budgetId) {
+        activeBudgetId = budgetId;
+
+        if (budgetId) {
+            await loadSharedBudget(budgetId);
+        } else {
+            await loadPersonalBudget(currentUser.uid);
+        }
+
+        updateCategoryDropdown();
+        renderDailyView();
+
+        // Update switcher selection
+        const switcher = $('#budget-switcher');
+        switcher.value = budgetId || 'personal';
+    }
+
+    // --- Fetch user's shared budgets list ---
+    async function loadSharedBudgetsList() {
+        if (!currentUser) return;
+
+        try {
+            const userDoc = await db.collection('users').doc(currentUser.uid).get();
+            const userData = userDoc.exists ? userDoc.data() : {};
+            const budgetIds = userData.sharedBudgets || [];
+
+            sharedBudgets = [];
+            for (const id of budgetIds) {
+                try {
+                    const bDoc = await db.collection('budgets').doc(id).get();
+                    if (bDoc.exists) {
+                        const bd = bDoc.data();
+                        sharedBudgets.push({
+                            id: id,
+                            name: bd.name || 'Shared Budget',
+                            inviteCode: bd.inviteCode || '',
+                            memberCount: (bd.members || []).length
+                        });
+                    }
+                } catch {
+                    // Budget might have been deleted
+                }
+            }
+        } catch {
+            sharedBudgets = [];
+        }
+
+        updateBudgetSwitcher();
+    }
+
+    // --- Update the budget switcher dropdown ---
+    function updateBudgetSwitcher() {
+        const switcher = $('#budget-switcher');
+        switcher.innerHTML = '<option value="personal">Personal Budget</option>';
+
+        sharedBudgets.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b.id;
+            opt.textContent = b.name;
+            switcher.appendChild(opt);
+        });
+
+        switcher.value = activeBudgetId || 'personal';
+    }
+
+    // --- Invite code generator ---
+    function generateInviteCode() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 to avoid confusion
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
+    }
+
+    // --- Create a shared budget ---
+    async function createSharedBudget(name) {
+        if (!currentUser) return;
+
+        const inviteCode = generateInviteCode();
+        const budgetRef = await db.collection('budgets').add({
+            name: name,
+            dailyGoal: 50,
+            customCategories: [],
+            expenses: {},
+            ownerId: currentUser.uid,
+            members: [currentUser.uid],
+            inviteCode: inviteCode
+        });
+
+        // Add to user's sharedBudgets list
+        await db.collection('users').doc(currentUser.uid).set({
+            sharedBudgets: firebase.firestore.FieldValue.arrayUnion(budgetRef.id)
+        }, { merge: true });
+
+        await loadSharedBudgetsList();
+        return { id: budgetRef.id, inviteCode };
+    }
+
+    // --- Join a shared budget via invite code ---
+    async function joinSharedBudget(code) {
+        if (!currentUser) return null;
+
+        const normalizedCode = code.toUpperCase().trim();
+
+        // Query for the budget with this invite code
+        const snapshot = await db.collection('budgets')
+            .where('inviteCode', '==', normalizedCode)
+            .limit(1)
+            .get();
+
+        if (snapshot.empty) {
+            return { error: 'No budget found with that code.' };
+        }
+
+        const budgetDoc = snapshot.docs[0];
+        const budgetData = budgetDoc.data();
+
+        // Check if already a member
+        if ((budgetData.members || []).includes(currentUser.uid)) {
+            return { error: 'You are already a member of this budget.' };
+        }
+
+        // Add user to the budget's members array
+        await db.collection('budgets').doc(budgetDoc.id).update({
+            members: firebase.firestore.FieldValue.arrayUnion(currentUser.uid)
+        });
+
+        // Add budget to user's sharedBudgets list
+        await db.collection('users').doc(currentUser.uid).set({
+            sharedBudgets: firebase.firestore.FieldValue.arrayUnion(budgetDoc.id)
+        }, { merge: true });
+
+        await loadSharedBudgetsList();
+        return { success: true, name: budgetData.name };
+    }
+
+    // --- Leave a shared budget ---
+    async function leaveSharedBudget(budgetId) {
+        if (!currentUser) return;
+
+        // Remove user from budget's members
+        await db.collection('budgets').doc(budgetId).update({
+            members: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
+        });
+
+        // Remove from user's sharedBudgets list
+        await db.collection('users').doc(currentUser.uid).set({
+            sharedBudgets: firebase.firestore.FieldValue.arrayRemove(budgetId)
+        }, { merge: true });
+
+        // If we were viewing this budget, switch back to personal
+        if (activeBudgetId === budgetId) {
+            await switchBudget(null);
+        }
+
+        await loadSharedBudgetsList();
+    }
+
+    // --- Render shared budgets in settings ---
+    function renderSharedBudgetsList() {
+        const list = $('#shared-budget-list');
+        const noMsg = $('#no-shared-budgets');
+        list.innerHTML = '';
+
+        if (sharedBudgets.length === 0) {
+            noMsg.style.display = '';
+            return;
+        }
+
+        noMsg.style.display = 'none';
+        sharedBudgets.forEach(b => {
+            const div = document.createElement('div');
+            div.className = 'shared-budget-item';
+            div.innerHTML = `
+                <div class="shared-budget-info">
+                    <span class="shared-budget-name">${escapeHtml(b.name)}</span>
+                    <span class="shared-budget-code">Code: ${b.inviteCode}</span>
+                    <span class="shared-budget-members">${b.memberCount} member${b.memberCount !== 1 ? 's' : ''}</span>
+                </div>
+                <button class="leave-budget-btn" data-id="${b.id}">Leave</button>
+            `;
+            list.appendChild(div);
+        });
     }
 
     // --- Date helpers ---
@@ -511,7 +733,6 @@
     function showApp(user) {
         $('#login-screen').classList.add('hidden');
         $('#app').style.display = '';
-        // Show first name only
         const firstName = user.displayName ? user.displayName.split(' ')[0] : 'User';
         $('#user-name').textContent = firstName;
     }
@@ -525,6 +746,12 @@
     function initUI() {
         updateCategoryDropdown();
         renderDailyView();
+
+        // Budget switcher
+        $('#budget-switcher').addEventListener('change', (e) => {
+            const val = e.target.value;
+            switchBudget(val === 'personal' ? null : val);
+        });
 
         // Tab navigation
         $$('.tab').forEach(btn => {
@@ -581,6 +808,7 @@
         $('#settings-btn').addEventListener('click', () => {
             $('#daily-goal-input').value = data.dailyGoal;
             $('#custom-categories').value = data.customCategories.join('\n');
+            renderSharedBudgetsList();
             $('#settings-modal').style.display = 'flex';
         });
 
@@ -610,6 +838,73 @@
         $('#settings-modal').addEventListener('click', (e) => {
             if (e.target === $('#settings-modal')) {
                 $('#settings-modal').style.display = 'none';
+            }
+        });
+
+        // --- Shared budget actions ---
+        $('#create-budget-btn').addEventListener('click', async () => {
+            const name = $('#new-budget-name').value.trim();
+            if (!name) {
+                alert('Please enter a name for the shared budget.');
+                return;
+            }
+
+            const btn = $('#create-budget-btn');
+            btn.disabled = true;
+            btn.textContent = '...';
+
+            try {
+                const result = await createSharedBudget(name);
+                alert(`Shared budget "${name}" created!\n\nInvite code: ${result.inviteCode}\n\nShare this code with anyone you want to join.`);
+                $('#new-budget-name').value = '';
+                renderSharedBudgetsList();
+            } catch (err) {
+                alert('Failed to create shared budget. Please try again.');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Create';
+        });
+
+        $('#join-budget-btn').addEventListener('click', async () => {
+            const code = $('#invite-code-input').value.trim();
+            if (!code || code.length < 6) {
+                alert('Please enter a 6-character invite code.');
+                return;
+            }
+
+            const btn = $('#join-budget-btn');
+            btn.disabled = true;
+            btn.textContent = '...';
+
+            try {
+                const result = await joinSharedBudget(code);
+                if (result.error) {
+                    alert(result.error);
+                } else {
+                    alert(`Joined "${result.name}" successfully!`);
+                    $('#invite-code-input').value = '';
+                    renderSharedBudgetsList();
+                }
+            } catch (err) {
+                alert('Failed to join. Check the code and try again.');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Join';
+        });
+
+        // Leave budget (event delegation)
+        $('#shared-budget-list').addEventListener('click', async (e) => {
+            const btn = e.target.closest('.leave-budget-btn');
+            if (!btn) return;
+
+            const budgetId = btn.dataset.id;
+            if (confirm('Leave this shared budget? You can rejoin later with the invite code.')) {
+                btn.disabled = true;
+                btn.textContent = '...';
+                await leaveSharedBudget(budgetId);
+                renderSharedBudgetsList();
             }
         });
 
@@ -672,7 +967,6 @@
     function initAuth() {
         $('#google-sign-in').addEventListener('click', () => {
             auth.signInWithPopup(googleProvider).catch((err) => {
-                // Handle popup blocked on mobile — fall back to redirect
                 if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
                     auth.signInWithRedirect(googleProvider);
                 }
@@ -690,11 +984,12 @@
     document.addEventListener('DOMContentLoaded', () => {
         initAuth();
 
-        // Firebase auth state listener — fires on load and on sign-in/out
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
-                await loadFromFirestore(user.uid);
+                activeBudgetId = null;
+                await loadPersonalBudget(user.uid);
+                await loadSharedBudgetsList();
                 showApp(user);
 
                 if (!uiInitialized) {
@@ -706,6 +1001,8 @@
                 }
             } else {
                 currentUser = null;
+                activeBudgetId = null;
+                sharedBudgets = [];
                 data = defaultData();
                 showLogin();
             }
@@ -715,9 +1012,7 @@
     // --- Service Worker Registration ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('sw.js').catch(() => {
-                // SW registration failed — app still works fine without it
-            });
+            navigator.serviceWorker.register('sw.js').catch(() => {});
         });
     }
 })();

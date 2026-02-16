@@ -114,6 +114,29 @@ header {
     align-items: center;
 }
 
+#budget-switcher {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    max-width: 180px;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='white'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+}
+
+#budget-switcher option {
+    color: #2c3e50;
+    background: white;
+}
+
 header h1 {
     font-size: 1.2rem;
     font-weight: 600;
@@ -734,6 +757,76 @@ header h1 {
 .data-actions button.danger {
     color: var(--danger);
     border-color: var(--danger);
+}
+
+/* Shared Budgets Settings */
+.shared-budgets-section {
+    margin-top: 12px;
+}
+
+.shared-budgets-section .form-row {
+    margin-bottom: 12px;
+}
+
+.shared-budgets-section input[type="text"] {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+}
+
+.shared-budgets-section button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--primary);
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.shared-budget-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+}
+
+.shared-budget-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.shared-budget-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.shared-budget-code {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    font-family: monospace;
+    letter-spacing: 1px;
+}
+
+.shared-budget-members {
+    font-size: 0.75rem;
+    color: var(--text-light);
+}
+
+.leave-budget-btn {
+    background: none !important;
+    border: 1px solid var(--danger) !important;
+    color: var(--danger) !important;
+    font-size: 0.75rem !important;
+    padding: 4px 10px !important;
 }
 
 /* Utility */

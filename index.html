@@ -36,7 +36,9 @@
         <!-- Header -->
         <header>
             <div id="header-left">
-                <h1>Daily Budget</h1>
+                <select id="budget-switcher">
+                    <option value="personal">Personal Budget</option>
+                </select>
             </div>
             <div id="header-right">
                 <span id="user-name"></span>
@@ -148,6 +150,31 @@
                     <button id="save-settings">Save</button>
                     <button id="cancel-settings">Cancel</button>
                 </div>
+                <hr>
+                <details>
+                    <summary>Shared Budgets</summary>
+                    <div class="shared-budgets-section">
+                        <div id="create-shared">
+                            <label for="new-budget-name">Create a Shared Budget</label>
+                            <div class="form-row">
+                                <input type="text" id="new-budget-name" placeholder="Budget name (e.g. Family)">
+                                <button id="create-budget-btn">Create</button>
+                            </div>
+                        </div>
+                        <div id="join-shared">
+                            <label for="invite-code-input">Join with Invite Code</label>
+                            <div class="form-row">
+                                <input type="text" id="invite-code-input" placeholder="Enter 6-letter code" maxlength="6" style="text-transform:uppercase;">
+                                <button id="join-budget-btn">Join</button>
+                            </div>
+                        </div>
+                        <div id="my-shared-budgets">
+                            <label>My Shared Budgets</label>
+                            <div id="shared-budget-list"></div>
+                            <p id="no-shared-budgets" style="color:var(--text-light);font-size:0.85rem;">No shared budgets yet</p>
+                        </div>
+                    </div>
+                </details>
                 <hr>
                 <details>
                     <summary>Data Management</summary>
