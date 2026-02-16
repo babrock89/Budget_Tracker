@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-tracker-v2';
+const CACHE_NAME = 'budget-tracker-v3';
 const ASSETS = [
     './',
     './index.html',
@@ -26,26 +26,19 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch: cache-first for local assets, network-first for CDN
+// Fetch: network-first for all requests (ensures updates are always picked up)
 self.addEventListener('fetch', (event) => {
-    const url = new URL(event.request.url);
-
-    // For CDN resources (Chart.js), try network first then cache
-    if (url.origin !== location.origin) {
-        event.respondWith(
-            fetch(event.request)
-                .then((response) => {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-                    return response;
-                })
-                .catch(() => caches.match(event.request))
-        );
-        return;
-    }
-
-    // For local assets, cache first then network
     event.respondWith(
-        caches.match(event.request).then((cached) => cached || fetch(event.request))
+        fetch(event.request)
+            .then((response) => {
+                // Cache a copy of the successful response
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                return response;
+            })
+            .catch(() => {
+                // Offline — serve from cache
+                return caches.match(event.request);
+            })
     );
 });
